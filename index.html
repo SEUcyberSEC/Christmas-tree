@@ -7,7 +7,7 @@
         body {
             margin: 0;
             overflow: hidden;
-            background-color: #000005; /* 极深的午夜蓝背景 */
+            background-color: #000005;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -15,35 +15,99 @@
             color: white;
             font-family: Arial, sans-serif;
         }
-        canvas {
-            display: block;
+        canvas { display: block; }
+
+        /* 音乐按钮样式 */
+        #music-control {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid white;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            font-size: 20px;
+            user-select: none;
+            transition: all 0.3s;
+        }
+        #music-control.playing {
+            animation: rotate 3s linear infinite;
+            background: rgba(255, 50, 50, 0.5);
+        }
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
     </style>
 </head>
 <body>
 
+<!-- 音乐控制按钮 -->
+<div id="music-control">🎵</div>
+
+<!-- 音频标签 -->
+<!-- 你可以将 src 改为本地的文件名，如 src="bgm.mp3" -->
+<audio id="bgm" loop>
+    <source src="we-wish-you-a-merry-christmas.mp3" type="audio/mpeg">
+    您的浏览器不支持音频播放。
+</audio>
+
 <canvas id="canvas"></canvas>
 
 <script>
-    // --- 初始化设置 ---
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
+    // --- 音乐控制逻辑 ---
+    const bgm = document.getElementById('bgm');
+    const musicBtn = document.getElementById('music-control');
+    let isPlaying = false;
 
-    let WIDTH = window.innerWidth;
-    let HEIGHT = window.innerHeight;
+    function toggleMusic() {
+        if (isPlaying) {
+            bgm.pause();
+            musicBtn.classList.remove('playing');
+        } else {
+            bgm.play().catch(err => console.log("等待用户交互后播放"));
+            musicBtn.classList.add('playing');
+        }
+        isPlaying = !isPlaying;
+    }
 
-    canvas.width = WIDTH;
-    canvas.height = HEIGHT;
-
-    // 处理窗口大小改变
-    window.addEventListener('resize', () => {
-        WIDTH = window.innerWidth;
-        HEIGHT = window.innerHeight;
-        canvas.width = WIDTH;
-        canvas.height = HEIGHT;
+    musicBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // 防止触发页面的点击事件
+        toggleMusic();
     });
 
-    // 颜色定义 (R, G, B) - 转换为 CSS 字符串格式
+    // 自动播放破解：用户第一次点击页面任何地方时开始播放
+    window.addEventListener('click', () => {
+        if (!isPlaying) {
+            toggleMusic();
+        }
+    }, { once: true }); // 只触发一次
+
+
+    // --- 以下是原有的 3D 圣诞树代码 (完全保留视觉精华) ---
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    let WIDTH, HEIGHT;
+
+    function resize() {
+        WIDTH = window.innerWidth;
+        HEIGHT = window.innerHeight;
+        canvas.width = WIDTH * dpr;
+        canvas.height = HEIGHT * dpr;
+        canvas.style.width = WIDTH + 'px';
+        canvas.style.height = HEIGHT + 'px';
+        ctx.scale(dpr, dpr);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
     const COLORS = {
         BLACK: 'rgb(0, 0, 5)',
         GOLD: {r: 255, g: 223, b: 0, str: 'rgb(255, 223, 0)'},
@@ -52,224 +116,146 @@
         CYAN_LIGHT: {r: 50, g: 255, b: 255}
     };
 
-    // --- 核心类：3D 点 ---
+    const imgUrls = ['1.jpg', '2.jpg', '3.jpg', '4.jpg'];
+    const images = [];
+    imgUrls.forEach((url, i) => {
+        const img = new Image();
+        img.src = url;
+        images[i] = img;
+    });
+
     class Point3D {
-        constructor(x, y, z, color, size, type = "leaf") {
-            this.x = x;
-            this.y = y;
-            this.z = z;
-            this.base_x = x;
-            this.base_z = z;
-            this.color = color; // Expecting object {r, g, b} or array
+        constructor(x, y, z, color, size, type = "leaf", imgIdx = null) {
+            this.x = x; this.y = y; this.z = z;
+            this.base_x = x; this.base_z = z;
+            this.color = color;
             this.size = size;
-            this.type = type; // 'leaf', 'star', 'snow', 'light'
+            this.type = type;
+            this.imgIdx = imgIdx;
             this.blink_offset = Math.random() * 100;
         }
-
-        project(angle, fov = 300, viewer_distance = 400) {
-            // 1. 绕 Y 轴旋转
+        project(angle, fov = 350, viewer_distance = 450) {
             const cos_a = Math.cos(angle);
             const sin_a = Math.sin(angle);
-
             let rot_x = this.base_x * cos_a - this.base_z * sin_a;
-            let rot_z = this.base_x * sin_a + this.base_z * cos_a + this.z;
-
-            if (this.type !== "snow") {
-                rot_z = this.base_x * sin_a + this.base_z * cos_a;
-            }
-
-            // 2. 透视投影
-            // 防止除以 0 或负数导致的反转
+            let rot_z = this.base_x * sin_a + this.base_z * cos_a;
             const depth = viewer_distance + rot_z;
-            if (depth < 1) return null; // 太近或在后面，不绘制
-
+            if (depth < 1) return null;
             const scale = fov / depth;
-            const x_2d = rot_x * scale + WIDTH / 2;
-            const y_2d = this.y * scale + HEIGHT / 2 + 50; // +50 把树位置调正
-
-            return { x: x_2d, y: y_2d, scale: scale, z_depth: rot_z };
+            return {
+                x: rot_x * scale + WIDTH / 2,
+                y: this.y * scale + HEIGHT / 2 + 50,
+                scale: scale,
+                z_depth: rot_z
+            };
         }
     }
 
-    // --- 生成圣诞树粒子 ---
     const particles = [];
-
-    // 1. 生成树体
     const layers = 80;
     for (let i = 0; i < layers; i++) {
-        let y = -200 + i * 5; 
+        let y = -200 + i * 5;
         let radius = i * 2.5;
         let count = Math.floor(radius * 1.5) + 5;
-
         for (let j = 0; j < count; j++) {
-            let angle = (j / count) * Math.PI * 2 + (i * 0.5);
-            let r_random = radius * (0.8 + Math.random() * 0.4);
-
-            let px = Math.cos(angle) * r_random;
-            let pz = Math.sin(angle) * r_random;
-
-            // 颜色随机变化
-            let c_var = Math.floor(Math.random() * 50);
-            let color = { r: 34, g: 139 + c_var, b: 34 }; // Green var
-
-            let p_type = "leaf";
+            let p_angle = (j / count) * Math.PI * 2 + (i * 0.5);
+            let r_rand = radius * (0.8 + Math.random() * 0.4);
+            let px = Math.cos(p_angle) * r_rand;
+            let pz = Math.sin(p_angle) * r_rand;
+            let color = { r: 34, g: 139 + Math.floor(Math.random() * 50), b: 34 };
+            let type = "leaf";
             let size = 2;
-
-            // 装饰灯 (8% 概率)
             if (Math.random() < 0.08) {
-                p_type = "light";
-                size = 4;
+                type = "light"; size = 4;
                 const choices = [COLORS.RED_LIGHT, COLORS.GOLD, COLORS.CYAN_LIGHT];
                 color = choices[Math.floor(Math.random() * choices.length)];
             }
-
-            particles.push(new Point3D(px, y, pz, color, size, p_type));
+            particles.push(new Point3D(px, y, pz, color, size, type));
         }
     }
-
-    // 2. 生成顶部星星
     for (let i = 0; i < 50; i++) {
-        let x = (Math.random() - 0.5) * 20;
-        let y = -220 + (Math.random() - 0.5) * 20;
-        let z = (Math.random() - 0.5) * 20;
-        particles.push(new Point3D(x, y, z, COLORS.GOLD, 3, "star"));
+        particles.push(new Point3D((Math.random()-0.5)*20, -220+(Math.random()-0.5)*20, (Math.random()-0.5)*20, COLORS.GOLD, 3, "star"));
     }
-
-    // --- 生成雪花 ---
+    const imagePoints = [];
+    const imgRadius = 130;
+    const imgPositions = [{x:0,z:1}, {x:1,z:0}, {x:0,z:-1}, {x:-1,z:0}];
+    for (let i = 0; i < 4; i++) {
+        imagePoints.push(new Point3D(imgPositions[i].x * imgRadius, -280, imgPositions[i].z * imgRadius, null, 1, "image", i));
+    }
     const snowflakes = [];
     for (let i = 0; i < 200; i++) {
-        let x = (Math.random() - 0.5) * 800;
-        let y = (Math.random() - 0.5) * 800;
-        let z = (Math.random() - 0.5) * 400;
-        snowflakes.push(new Point3D(x, y, z, COLORS.WHITE, Math.random() * 2 + 1, "snow"));
+        snowflakes.push(new Point3D((Math.random()-0.5)*800, (Math.random()-0.5)*800, (Math.random()-0.5)*400, COLORS.WHITE, Math.random()*2+1, "snow"));
     }
 
-    // --- 绘制辅助逻辑 ---
-    let angle = 0;
-    let time = 0;
-
+    let angle = 0, time = 0;
     function animate() {
-        // 清屏 (使用黑色覆盖)
         ctx.fillStyle = COLORS.BLACK;
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
-
-        angle += 0.01;
-        time += 1;
-
+        angle += 0.012; time += 1;
         let to_draw = [];
-
-        // 1. 处理树和灯
-        for (let p of particles) {
+        [...particles, ...imagePoints].forEach(p => {
             const proj = p.project(angle);
-            if (proj) {
-                to_draw.push({ z: proj.z_depth, p: p, x: proj.x, y: proj.y, scale: proj.scale });
-            }
-        }
+            if (proj) to_draw.push({ ...proj, p });
+        });
+        snowflakes.forEach(s => {
+            s.y += 1.5; if (s.y > 400) s.y = -400;
+            const proj = s.project(0);
+            if (proj) to_draw.push({ ...proj, p: s });
+        });
+        to_draw.sort((a, b) => b.z_depth - a.z_depth);
 
-        // 2. 处理雪花
-        for (let s of snowflakes) {
-            s.y += 1.5;
-            if (s.y > 300) {
-                s.y = -300;
-                s.x = (Math.random() - 0.5) * 800;
-                s.base_x = s.x; // 重要：重置 base_x
-            }
-            const proj = s.project(angle);
-            if (proj) {
-                to_draw.push({ z: proj.z_depth, p: s, x: proj.x, y: proj.y, scale: proj.scale });
-            }
-        }
-
-        // 3. 排序 (画家算法: 远的先画)
-        to_draw.sort((a, b) => b.z - a.z);
-
-        // 4. 绘制
-        for (let item of to_draw) {
+        to_draw.forEach(item => {
             const { p, x, y, scale } = item;
             const size = Math.max(1, p.size * scale);
-
             if (p.type === "leaf") {
-                // 深度雾效
-                let depthFactor = scale * 0.8;
-                depthFactor = Math.max(0, Math.min(1, depthFactor));
-                ctx.fillStyle = `rgb(${p.color.r * depthFactor}, ${p.color.g * depthFactor}, ${p.color.b * depthFactor})`;
-                
-                ctx.beginPath();
-                ctx.arc(x, y, size, 0, Math.PI * 2);
-                ctx.fill();
-
+                let df = Math.max(0.1, Math.min(1, scale * 0.8));
+                ctx.fillStyle = `rgb(${p.color.r * df}, ${p.color.g * df}, ${p.color.b * df})`;
+                ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI*2); ctx.fill();
             } else if (p.type === "light") {
                 let blink = Math.sin(time * 0.05 + p.blink_offset);
                 if (blink > 0) {
-                    // 发光效果：使用 lighter 混合模式
                     ctx.save();
                     ctx.globalCompositeOperation = 'lighter';
-                    
-                    // 核心
-                    ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, 1)`;
-                    ctx.beginPath();
-                    ctx.arc(x, y, size, 0, Math.PI * 2);
-                    ctx.fill();
-
-                    // 光晕
-                    ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, 0.4)`;
-                    ctx.beginPath();
-                    ctx.arc(x, y, size * 2, 0, Math.PI * 2);
-                    ctx.fill();
-                    
+                    ctx.fillStyle = `rgb(${p.color.r},${p.color.g},${p.color.b})`;
+                    ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI*2); ctx.fill();
                     ctx.restore();
                 } else {
-                    // 灭灯
-                    ctx.fillStyle = 'rgb(50, 50, 50)';
-                    ctx.beginPath();
-                    ctx.arc(x, y, size, 0, Math.PI * 2);
-                    ctx.fill();
+                    ctx.fillStyle = '#333';
+                    ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI*2); ctx.fill();
                 }
-
             } else if (p.type === "star") {
                 ctx.save();
                 ctx.globalCompositeOperation = 'lighter';
-                
-                // 星星总是亮的
                 ctx.fillStyle = COLORS.GOLD.str;
-                ctx.beginPath();
-                ctx.arc(x, y, size + 1, 0, Math.PI * 2);
-                ctx.fill();
-                
-                // 星星大光晕
-                ctx.fillStyle = `rgba(${COLORS.GOLD.r}, ${COLORS.GOLD.g}, ${COLORS.GOLD.b}, 0.3)`;
-                ctx.beginPath();
-                ctx.arc(x, y, size * 4, 0, Math.PI * 2);
-                ctx.fill();
-
+                ctx.beginPath(); ctx.arc(x, y, size+1, 0, Math.PI*2); ctx.fill();
                 ctx.restore();
-
+            } else if (p.type === "image") {
+                const img = images[p.imgIdx];
+                if (img && img.complete) {
+                    const drawW = 140 * scale;
+                    const drawH = (img.naturalHeight / img.naturalWidth) * drawW;
+                    ctx.save();
+                    ctx.shadowBlur = 15; ctx.shadowColor = "white";
+                    ctx.strokeStyle = "white"; ctx.lineWidth = 2;
+                    ctx.drawImage(img, x - drawW/2, y - drawH/2, drawW, drawH);
+                    ctx.strokeRect(x - drawW/2, y - drawH/2, drawW, drawH);
+                    ctx.restore();
+                }
             } else if (p.type === "snow") {
-                ctx.fillStyle = COLORS.WHITE.str;
-                ctx.beginPath();
-                ctx.arc(x, y, size, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.fillStyle = "white";
+                ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI*2); ctx.fill();
             }
-        }
+        });
 
-        // 绘制文字
-        ctx.font = "bold 40px Arial";
-        ctx.textAlign = "center";
-        
-        // 文字光晕/阴影
-        ctx.fillStyle = "rgba(100, 0, 0, 0.8)";
-        ctx.fillText("Merry Christmas", WIDTH / 2 + 2, HEIGHT - 80 + 2);
-        
-        // 文字主体
+        ctx.font = "bold 40px Arial"; ctx.textAlign = "center";
+        ctx.fillStyle = "rgba(150, 0, 0, 0.5)";
+        ctx.fillText("Merry Christmas", WIDTH/2 + 2, HEIGHT - 60 + 2);
         ctx.fillStyle = "rgb(255, 50, 50)";
-        ctx.fillText("Merry Christmas", WIDTH / 2, HEIGHT - 80);
+        ctx.fillText("Merry Christmas", WIDTH/2, HEIGHT - 60);
 
         requestAnimationFrame(animate);
     }
-
-    // 启动动画
     animate();
-
 </script>
 </body>
 </html>
