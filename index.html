@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>屈慕原圣诞快乐！</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000005; /* 极深的午夜蓝背景 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<script>
+    // --- 初始化设置 ---
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    let WIDTH = window.innerWidth;
+    let HEIGHT = window.innerHeight;
+
+    canvas.width = WIDTH;
+    canvas.height = HEIGHT;
+
+    // 处理窗口大小改变
+    window.addEventListener('resize', () => {
+        WIDTH = window.innerWidth;
+        HEIGHT = window.innerHeight;
+        canvas.width = WIDTH;
+        canvas.height = HEIGHT;
+    });
+
+    // 颜色定义 (R, G, B) - 转换为 CSS 字符串格式
+    const COLORS = {
+        BLACK: 'rgb(0, 0, 5)',
+        GOLD: {r: 255, g: 223, b: 0, str: 'rgb(255, 223, 0)'},
+        WHITE: {r: 255, g: 255, b: 255, str: 'rgb(255, 255, 255)'},
+        RED_LIGHT: {r: 255, g: 50, b: 50},
+        CYAN_LIGHT: {r: 50, g: 255, b: 255}
+    };
+
+    // --- 核心类：3D 点 ---
+    class Point3D {
+        constructor(x, y, z, color, size, type = "leaf") {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.base_x = x;
+            this.base_z = z;
+            this.color = color; // Expecting object {r, g, b} or array
+            this.size = size;
+            this.type = type; // 'leaf', 'star', 'snow', 'light'
+            this.blink_offset = Math.random() * 100;
+        }
+
+        project(angle, fov = 300, viewer_distance = 400) {
+            // 1. 绕 Y 轴旋转
+            const cos_a = Math.cos(angle);
+            const sin_a = Math.sin(angle);
+
+            let rot_x = this.base_x * cos_a - this.base_z * sin_a;
+            let rot_z = this.base_x * sin_a + this.base_z * cos_a + this.z;
+
+            if (this.type !== "snow") {
+                rot_z = this.base_x * sin_a + this.base_z * cos_a;
+            }
+
+            // 2. 透视投影
+            // 防止除以 0 或负数导致的反转
+            const depth = viewer_distance + rot_z;
+            if (depth < 1) return null; // 太近或在后面，不绘制
+
+            const scale = fov / depth;
+            const x_2d = rot_x * scale + WIDTH / 2;
+            const y_2d = this.y * scale + HEIGHT / 2 + 50; // +50 把树位置调正
+
+            return { x: x_2d, y: y_2d, scale: scale, z_depth: rot_z };
+        }
+    }
+
+    // --- 生成圣诞树粒子 ---
+    const particles = [];
+
+    // 1. 生成树体
+    const layers = 80;
+    for (let i = 0; i < layers; i++) {
+        let y = -200 + i * 5; 
+        let radius = i * 2.5;
+        let count = Math.floor(radius * 1.5) + 5;
+
+        for (let j = 0; j < count; j++) {
+            let angle = (j / count) * Math.PI * 2 + (i * 0.5);
+            let r_random = radius * (0.8 + Math.random() * 0.4);
+
+            let px = Math.cos(angle) * r_random;
+            let pz = Math.sin(angle) * r_random;
+
+            // 颜色随机变化
+            let c_var = Math.floor(Math.random() * 50);
+            let color = { r: 34, g: 139 + c_var, b: 34 }; // Green var
+
+            let p_type = "leaf";
+            let size = 2;
+
+            // 装饰灯 (8% 概率)
+            if (Math.random() < 0.08) {
+                p_type = "light";
+                size = 4;
+                const choices = [COLORS.RED_LIGHT, COLORS.GOLD, COLORS.CYAN_LIGHT];
+                color = choices[Math.floor(Math.random() * choices.length)];
+            }
+
+            particles.push(new Point3D(px, y, pz, color, size, p_type));
+        }
+    }
+
+    // 2. 生成顶部星星
+    for (let i = 0; i < 50; i++) {
+        let x = (Math.random() - 0.5) * 20;
+        let y = -220 + (Math.random() - 0.5) * 20;
+        let z = (Math.random() - 0.5) * 20;
+        particles.push(new Point3D(x, y, z, COLORS.GOLD, 3, "star"));
+    }
+
+    // --- 生成雪花 ---
+    const snowflakes = [];
+    for (let i = 0; i < 200; i++) {
+        let x = (Math.random() - 0.5) * 800;
+        let y = (Math.random() - 0.5) * 800;
+        let z = (Math.random() - 0.5) * 400;
+        snowflakes.push(new Point3D(x, y, z, COLORS.WHITE, Math.random() * 2 + 1, "snow"));
+    }
+
+    // --- 绘制辅助逻辑 ---
+    let angle = 0;
+    let time = 0;
+
+    function animate() {
+        // 清屏 (使用黑色覆盖)
+        ctx.fillStyle = COLORS.BLACK;
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+        angle += 0.01;
+        time += 1;
+
+        let to_draw = [];
+
+        // 1. 处理树和灯
+        for (let p of particles) {
+            const proj = p.project(angle);
+            if (proj) {
+                to_draw.push({ z: proj.z_depth, p: p, x: proj.x, y: proj.y, scale: proj.scale });
+            }
+        }
+
+        // 2. 处理雪花
+        for (let s of snowflakes) {
+            s.y += 1.5;
+            if (s.y > 300) {
+                s.y = -300;
+                s.x = (Math.random() - 0.5) * 800;
+                s.base_x = s.x; // 重要：重置 base_x
+            }
+            const proj = s.project(angle);
+            if (proj) {
+                to_draw.push({ z: proj.z_depth, p: s, x: proj.x, y: proj.y, scale: proj.scale });
+            }
+        }
+
+        // 3. 排序 (画家算法: 远的先画)
+        to_draw.sort((a, b) => b.z - a.z);
+
+        // 4. 绘制
+        for (let item of to_draw) {
+            const { p, x, y, scale } = item;
+            const size = Math.max(1, p.size * scale);
+
+            if (p.type === "leaf") {
+                // 深度雾效
+                let depthFactor = scale * 0.8;
+                depthFactor = Math.max(0, Math.min(1, depthFactor));
+                ctx.fillStyle = `rgb(${p.color.r * depthFactor}, ${p.color.g * depthFactor}, ${p.color.b * depthFactor})`;
+                
+                ctx.beginPath();
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+                ctx.fill();
+
+            } else if (p.type === "light") {
+                let blink = Math.sin(time * 0.05 + p.blink_offset);
+                if (blink > 0) {
+                    // 发光效果：使用 lighter 混合模式
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'lighter';
+                    
+                    // 核心
+                    ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, 1)`;
+                    ctx.beginPath();
+                    ctx.arc(x, y, size, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // 光晕
+                    ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, 0.4)`;
+                    ctx.beginPath();
+                    ctx.arc(x, y, size * 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.restore();
+                } else {
+                    // 灭灯
+                    ctx.fillStyle = 'rgb(50, 50, 50)';
+                    ctx.beginPath();
+                    ctx.arc(x, y, size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+            } else if (p.type === "star") {
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+                
+                // 星星总是亮的
+                ctx.fillStyle = COLORS.GOLD.str;
+                ctx.beginPath();
+                ctx.arc(x, y, size + 1, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 星星大光晕
+                ctx.fillStyle = `rgba(${COLORS.GOLD.r}, ${COLORS.GOLD.g}, ${COLORS.GOLD.b}, 0.3)`;
+                ctx.beginPath();
+                ctx.arc(x, y, size * 4, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+
+            } else if (p.type === "snow") {
+                ctx.fillStyle = COLORS.WHITE.str;
+                ctx.beginPath();
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 绘制文字
+        ctx.font = "bold 40px Arial";
+        ctx.textAlign = "center";
+        
+        // 文字光晕/阴影
+        ctx.fillStyle = "rgba(100, 0, 0, 0.8)";
+        ctx.fillText("Merry Christmas", WIDTH / 2 + 2, HEIGHT - 80 + 2);
+        
+        // 文字主体
+        ctx.fillStyle = "rgb(255, 50, 50)";
+        ctx.fillText("Merry Christmas", WIDTH / 2, HEIGHT - 80);
+
+        requestAnimationFrame(animate);
+    }
+
+    // 启动动画
+    animate();
+
+</script>
+</body>
+</html>
